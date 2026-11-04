@@ -1,0 +1,22 @@
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md
+
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# environment
+.env
+.env*.local
+
+# misc
+*.tsbuildinfo
+*.log
+.DS_Store
+
