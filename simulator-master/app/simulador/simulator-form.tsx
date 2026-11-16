@@ -34,7 +34,7 @@ import {
   type ShirtViewId,
 } from '@/lib/mockup/options'
 import { isMockupSuccess, type MockupResponse } from '@/lib/mockup/types'
-import { ShirtSchematic } from './shirt-schematic'
+import { InteractiveShirtMap } from './interactive-shirt-map'
 
 export type SimulatorAccess = 'open' | 'password' | 'locked'
 
@@ -50,6 +50,8 @@ type GeneratedMockup = {
   color: ShirtColorId
   view: ShirtViewId
   designPosition: DesignPositionId
+  /** Giro aplicado al estampado en el momento de generar, en grados. */
+  rotation: number
 }
 
 /** La otra cara de la prenda (frontal ⇄ trasera). */
@@ -58,7 +60,8 @@ function oppositeViewOf(view: ShirtViewId): ShirtViewId {
 }
 
 function mockupCaption(mockup: GeneratedMockup): string {
-  return `${getView(mockup.view).label} · ${getDesignPosition(mockup.designPosition).label}`
+  const placement = `${getView(mockup.view).label} · ${getDesignPosition(mockup.designPosition).label}`
+  return mockup.rotation > 0 ? `${placement} · ${mockup.rotation}º` : placement
 }
 
 function mockupAlt(mockup: GeneratedMockup): string {
@@ -397,6 +400,9 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
   const [view, setView] = useState<ShirtViewId>(DEFAULT_VIEW)
   const [designPosition, setDesignPosition] =
     useState<DesignPositionId>(DEFAULT_DESIGN_POSITION)
+  // Giro del estampado en grados (0-360). Se reinicia cuando la zona cambia:
+  // el ángulo pertenece a la colocación anterior.
+  const [designRotation, setDesignRotation] = useState(0)
   const [logoPosition, setLogoPosition] =
     useState<LogoPositionId>(DEFAULT_LOGO_POSITION)
   const [designFile, setDesignFile] = useState<File | null>(null)
@@ -461,8 +467,19 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
     setShowSecondViewPrompt(false)
     if (!isDesignPositionForView(nextView, designPosition)) {
       const [firstPosition] = getDesignPositions(nextView)
-      setDesignPosition(firstPosition.id)
+      handleDesignPositionChange(firstPosition.id)
     }
+  }
+
+  /**
+   * Cambia la zona del estampado y devuelve el giro a 0: el ángulo elegido
+   * describe la colocación anterior, así que mover el diseño de sitio empieza
+   * de nuevo sin rotación.
+   */
+  function handleDesignPositionChange(nextPosition: DesignPositionId) {
+    if (nextPosition === designPosition) return
+    setDesignPosition(nextPosition)
+    setDesignRotation(0)
   }
 
   /** Imágenes visibles en el panel de resultado: la primera y, si existe, la segunda. */
@@ -532,6 +549,12 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
     body.set('view', targetView)
     body.set('designPosition', targetDesignPosition)
     body.set('logoPosition', logoPosition)
+    // Con «Sin diseño» no hay arte que girar: se envía 0 para que el prompt no
+    // describa una rotación inexistente.
+    body.set(
+      'rotation',
+      String(isDesignlessPosition(targetDesignPosition) ? 0 : designRotation),
+    )
     // Con «Sin diseño» no se envía el arte aunque siga elegido: la cara se
     // genera lisa (el servidor lo ignora igualmente).
     if (designFile && !isDesignlessPosition(targetDesignPosition)) {
@@ -572,6 +595,7 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
       color,
       view: targetView,
       designPosition: targetDesignPosition,
+      rotation: isDesignlessPosition(targetDesignPosition) ? 0 : designRotation,
     }
   }
 
@@ -633,7 +657,7 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
 
     setShowSecondViewPrompt(false)
     setView(secondViewTarget)
-    setDesignPosition(secondViewPosition)
+    handleDesignPositionChange(secondViewPosition)
     setError(null)
 
     // En móvil el resultado queda muy abajo: devolvemos la vista al formulario.
@@ -656,6 +680,7 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
     setColor(DEFAULT_SHIRT_COLOR)
     setView(DEFAULT_VIEW)
     setDesignPosition(DEFAULT_DESIGN_POSITION)
+    setDesignRotation(0)
     setLogoPosition(DEFAULT_LOGO_POSITION)
     setDesignFile(null)
     setLogoFile(null)
@@ -754,7 +779,7 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
           description={
             designless
               ? 'Camiseta lisa: esta cara se genera sin estampado principal.'
-              : 'Posición sobre la vista elegida · PNG con transparencia y al menos 1000 px de ancho.'
+              : 'Posición sobre la vista elegida o clic en el esquema · PNG con transparencia y al menos 1000 px de ancho.'
           }
         >
           <SelectField
@@ -763,7 +788,7 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
             value={designPosition}
             options={designOptions}
             disabled={disabled}
-            onChange={setDesignPosition}
+            onChange={handleDesignPositionChange}
           />
           {designless ? (
             <p className="border border-dashed border-line px-3 py-4 text-[10px] uppercase leading-4 tracking-[0.14em] text-ink-soft">
@@ -930,16 +955,57 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
             <h2 className="text-[11px] uppercase tracking-[0.18em]">
               Previsualización
             </h2>
-            <span className="font-mono text-[11px] text-ink-soft">esquema</span>
+            <span className="font-mono text-[11px] text-ink-soft">interactivo</span>
           </header>
 
           <div className="px-5 py-6">
-            <ShirtSchematic
+            <InteractiveShirtMap
               colorId={color}
               view={view}
               designPosition={designPosition}
+              rotation={designRotation}
               logoPosition={logoPosition}
+              disabled={disabled}
+              onPick={(position) => handleDesignPositionChange(position)}
             />
+
+            {!designless ? (
+              <div className="mt-5 border-t border-line pt-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <label htmlFor="design-rotation" className="patio-label">
+                    Rotación del diseño
+                  </label>
+                  <span className="font-mono text-[11px] text-ink">
+                    {designRotation}º
+                  </span>
+                </div>
+                <input
+                  id="design-rotation"
+                  type="range"
+                  min={0}
+                  max={360}
+                  step={1}
+                  value={designRotation}
+                  disabled={disabled}
+                  aria-valuetext={`${designRotation} grados`}
+                  aria-describedby="design-rotation-hint"
+                  onChange={(event) =>
+                    setDesignRotation(Number(event.target.value))
+                  }
+                  className="mt-3 w-full cursor-pointer accent-ink disabled:cursor-not-allowed disabled:opacity-55"
+                />
+                <div className="mt-1 flex justify-between font-mono text-[9px] uppercase tracking-[0.14em] text-line-strong">
+                  <span>0º</span>
+                  <span>360º</span>
+                </div>
+                <p
+                  id="design-rotation-hint"
+                  className="mt-2 text-[10px] uppercase leading-4 tracking-[0.14em] text-ink-soft"
+                >
+                  El marcador gira con el diseño · 0º = sin giro
+                </p>
+              </div>
+            ) : null}
 
             <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-line pt-4 text-[10px] uppercase tracking-[0.14em]">
               <div>
@@ -953,6 +1019,10 @@ export function SimulatorForm({ access }: { access: SimulatorAccess }) {
               <div>
                 <dt className="text-ink-soft">Diseño</dt>
                 <dd className="mt-1">{selectedDesign?.label ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-soft">Rotación</dt>
+                <dd className="mt-1">{designless ? '—' : `${designRotation}º`}</dd>
               </div>
               <div>
                 <dt className="text-ink-soft">Logo</dt>

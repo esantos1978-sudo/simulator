@@ -38,6 +38,8 @@ export type MockupPromptInput = {
   view: ShirtViewId
   /** Posición del estampado; `sin-diseno` genera la cara lisa. */
   designPosition: DesignPositionId
+  /** Giro del estampado en grados (0-360); 0 significa sin rotación. */
+  rotation: number
   logoPosition: LogoPositionId
   hasLogo: boolean
 }
@@ -150,6 +152,39 @@ const LOGO_PLACEMENTS: Record<
   },
 }
 
+/** Normaliza cualquier ángulo al rango [0, 360). */
+function normalizeRotation(rotation: number): number {
+  if (!Number.isFinite(rotation)) return 0
+  const rounded = Math.round(rotation) % 360
+  return rounded < 0 ? rounded + 360 : rounded
+}
+
+/**
+ * Traduce el giro a lenguaje natural: los modelos de imagen entienden mejor
+ * «ligeramente girado en sentido horario» que un número suelto, así que se
+ * combinan ambos. Por encima de 180º se describe el ángulo equivalente en
+ * sentido antihorario (270º = 90º a la izquierda) para no pedir un giro
+ * innecesariamente largo.
+ */
+function rotationInstruction(rotation: number): string | null {
+  const degrees = normalizeRotation(rotation)
+  if (degrees === 0) return null
+
+  const clockwise = degrees <= 180
+  const magnitude = clockwise ? degrees : 360 - degrees
+  const direction = clockwise ? 'clockwise' : 'counter-clockwise'
+  const intensity =
+    magnitude < 15
+      ? 'very slightly'
+      : magnitude < 45
+        ? 'slightly'
+        : magnitude <= 135
+          ? 'diagonally'
+          : 'significantly'
+
+  return `The design should be rotated ${intensity} ${direction} (approx. ${magnitude} degrees) around its own centre as a whole, keeping its original proportions and without mirroring it.`
+}
+
 /**
  * Construye el prompt completo del mockup a partir de las opciones del
  * formulario. Las imágenes se adjuntan por separado, en este orden:
@@ -162,6 +197,7 @@ export function buildMockupPrompt({
   color,
   view,
   designPosition,
+  rotation,
   logoPosition,
   hasLogo,
 }: MockupPromptInput): string {
@@ -172,6 +208,8 @@ export function buildMockupPrompt({
     logoPosition === 'sin-logo' ? null : LOGO_PLACEMENTS[logoPosition][view]
   const sideLabel = view === 'trasera' ? 'back' : 'front'
   const noDesign = isDesignlessPosition(designPosition)
+  // El giro solo tiene sentido cuando hay arte que girar.
+  const rotationNote = noDesign ? null : rotationInstruction(rotation)
   // Sin arte de diseño el logo es la primera imagen adjunta, no la segunda.
   const logoImageRef = noDesign ? 'attached logo image' : 'second attached image'
 
@@ -205,8 +243,13 @@ export function buildMockupPrompt({
       [
         `ARTWORK (${design.label}) — first attached image. ${DESIGN_PLACEMENTS[designPosition]}`,
         DESIGN_SPECIFICS[designPosition],
-        'Print the artwork exactly as supplied: identical shapes, colours, line weights and typography. Do not redraw, recolour, crop, rotate or stylise it, and do not add extra text, letters, logos, watermarks or graphics of your own.',
-      ].join(' '),
+        rotationNote,
+        rotationNote
+          ? 'Print the artwork exactly as supplied: identical shapes, colours, line weights and typography. Do not redraw, recolour, crop, mirror or stylise it, and do not add extra text, letters, logos, watermarks or graphics of your own.'
+          : 'Print the artwork exactly as supplied: identical shapes, colours, line weights and typography. Do not redraw, recolour, crop, rotate or stylise it, and do not add extra text, letters, logos, watermarks or graphics of your own.',
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(' '),
     )
 
     blocks.push(

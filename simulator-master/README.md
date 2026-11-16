@@ -35,11 +35,17 @@ En `next dev` el simulador está **abierto**: no pide contraseña.
    con el logo si se ha elegido: sirve para ver la tela/color o para una prenda
    minimalista con el logo como única decoración. Muestra un esquema vectorial de
    la camiseta mientras se elige, dibujando la cara seleccionada y sin marcar
-   zona de estampado cuando no lo hay.
-2. Envía todo como `FormData` a `/api/generate-mockup`.
+   zona de estampado cuando no lo hay. El esquema admite colocación interactiva
+   (clic para estampar, Ctrl/Cmd + rueda para zoom y arrastre para mover) y,
+   cuando hay diseño, un slider de rotación de 0 a 360º que orienta el marcador
+   en el mapa.
+2. Envía todo como `FormData` a `/api/generate-mockup`, incluido el giro
+   (`rotation`, en grados).
 3. La ruta valida contraseña, tamaños (máx. 8 MB), tipos de archivo y que la
    posición pertenezca a la vista pedida (si no, usa la primera de esa cara),
-   convierte las imágenes a base64 y construye el prompt con `buildMockupPrompt`.
+   normaliza el giro a 0-359º, convierte las imágenes a base64 y construye el
+   prompt con `buildMockupPrompt`, que describe el ángulo en lenguaje natural
+   («rotated diagonally clockwise (approx. 45 degrees)»).
    Con «Sin logo» descarta el archivo del logo aunque el cliente lo envíe, para
    que una cara pueda llevarlo y la otra no; con «Sin diseño» hace lo mismo con
    el PNG del estampado, que además deja de ser obligatorio (la petición puede
@@ -74,9 +80,11 @@ app/
   api/generate-mockup/route.ts   validación + llamada a Gemini
   simulador/page.tsx             control de acceso y cabecera
   simulador/simulator-form.tsx   formulario, previsualización y resultado
+  simulador/interactive-shirt-map.tsx  zoom, pan y clic sobre el esquema
   simulador/shirt-schematic.tsx  esquema SVG de la camiseta
 lib/mockup/
   options.ts                     colores, vistas, posiciones y avisos de conflicto
+  placement.ts                   geometría compartida del esquema y zona más cercana
   prompt.ts                      plantillas del prompt (vista en español, cuerpo en inglés)
   gemini.ts                      cliente REST de Gemini
   types.ts                       contratos compartidos cliente/servidor

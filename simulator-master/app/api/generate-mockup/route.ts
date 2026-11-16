@@ -78,6 +78,20 @@ function readFile(value: FormDataEntryValue | null): File | null {
   return value instanceof File && value.size > 0 ? value : null
 }
 
+/**
+ * Giro del estampado en grados. Un valor ausente, no numérico o infinito cae a
+ * 0, y el resto se normaliza a [0, 360) para que 360º equivalga a sin giro.
+ */
+function parseRotation(value: FormDataEntryValue | null): number {
+  if (typeof value !== 'string' || value.trim().length === 0) return 0
+
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+
+  const rounded = Math.round(parsed) % 360
+  return rounded < 0 ? rounded + 360 : rounded
+}
+
 function resolveMimeType(file: File): string {
   if (file.type) return file.type
 
@@ -148,6 +162,9 @@ export async function POST(request: Request) {
   const logoPosition: LogoPositionId =
     parseOption(form.get('logoPosition'), LOGO_POSITION_IDS) ??
     DEFAULT_LOGO_POSITION
+  // Giro del estampado elegido en el slider; con «Sin diseño» el prompt lo
+  // ignora porque no hay arte que girar.
+  const rotation = parseRotation(form.get('rotation'))
 
   // Con «Sin diseño» la cara se genera lisa: el arte no se adjunta (si el
   // cliente lo manda, se ignora) y deja de ser obligatorio.
@@ -192,6 +209,7 @@ export async function POST(request: Request) {
     color,
     view,
     designPosition,
+    rotation,
     logoPosition,
     hasLogo: Boolean(logoFile),
   })
@@ -202,6 +220,8 @@ export async function POST(request: Request) {
     view,
     '· POSICIÓN:',
     designPosition,
+    '· GIRO:',
+    `${rotation}°`,
     '· LOGO:',
     logoPosition,
     '· IMÁGENES:',
